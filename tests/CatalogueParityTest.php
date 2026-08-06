@@ -175,6 +175,7 @@ final class CatalogueParityTest extends TestCase
     public function test_plural_lines_keep_the_same_number_of_forms(): void
     {
         $reference = self::catalogue(self::REFERENCE);
+        $checked   = 0;
 
         foreach (self::locales() as $locale) {
             if ($locale === self::REFERENCE) {
@@ -188,12 +189,21 @@ final class CatalogueParityTest extends TestCase
                     continue;
                 }
 
+                $checked++;
                 $this->assertSame(
                     substr_count((string) $line, '|'),
                     substr_count((string) $translated[$key], '|'),
                     sprintf('[%s] "%s" has a different number of plural forms.', $locale, $key),
                 );
             }
+        }
+
+        // A catalogue with no plural lines is a legitimate state, but it must
+        // be asserted rather than left as a test that silently checks nothing —
+        // otherwise this stays green if the catalogue path ever breaks and
+        // every locale loads empty.
+        if ($checked === 0) {
+            $this->assertNotEmpty($reference, 'the reference catalogue must still have loaded');
         }
     }
 }
