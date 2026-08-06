@@ -28,7 +28,8 @@
     "require-dev": {
         "phpunit/phpunit": "^11 || ^12 || ^13",
         "alfacode-team/hkm-plugin-audit": "dev-main",
-        "alfacode-team/hkm-plugin-cookie": "dev-main"
+        "alfacode-team/hkm-plugin-cookie": "dev-main",
+        "alfacode-team/hkm-test-support": "dev-main"
     },
     "repositories": [
         {
@@ -166,6 +167,10 @@
         {
             "type": "vcs",
             "url": "https://github.com/AlfaCode-Team/hkm-plugin-vitemanifest"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-test-support"
         }
     ],
     "minimum-stability": "dev",
