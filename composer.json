@@ -3,13 +3,21 @@
     "description": "HKM Kernel plugin providing 'auth.identity'.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["hkm-kernel", "plugin", "php", "auth.identity"],
+    "keywords": [
+        "hkm-kernel",
+        "plugin",
+        "php",
+        "auth.identity"
+    ],
     "require": {
         "php": ">=8.4"
     },
     "autoload": {
         "psr-4": {
             "Plugins\\Auth\\": ""
-        }
+        },
+        "files": [
+            "Support/helpers.php"
+        ]
     }
 }
