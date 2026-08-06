@@ -69,11 +69,20 @@ final class JwtAuthLayer implements SecurityLayerContract
             return SecurityVerdict::deny(401, 'Invalid or missing authentication token.');
         }
 
-        // Honour configured clock-skew tolerance for exp/iat/nbf checks (the JWT
-        // library reads this static at decode time).
-        if ($this->leeway > 0) {
-            JWT::$leeway = $this->leeway;
-        }
+        // Clock-skew tolerance for exp/iat/nbf. The JWT library only exposes
+        // this as a process-global static, so it must be set for OUR decode and
+        // restored immediately.
+        //
+        // Previously it was assigned and never restored, and only when non-zero.
+        // Both halves were wrong under a resident worker (Swoole):
+        //   - not restoring leaked this layer's tolerance into every later
+        //     decode in the process, including other components' ;
+        //   - skipping the assignment when leeway is 0 meant a layer that wants
+        //     STRICT checking silently inherited a previous layer's tolerance,
+        //     so an expired token could verify.
+        // Assign unconditionally, restore in finally.
+        $previousLeeway = JWT::$leeway;
+        JWT::$leeway    = max(0, $this->leeway);
 
         try {
             // Pin to a SINGLE algorithm — never let the token's own `alg` header
@@ -81,6 +90,8 @@ final class JwtAuthLayer implements SecurityLayerContract
             $claims = (array) JWT::decode($token, new Key($this->secret, $this->algo));
         } catch (\Throwable) {
             return SecurityVerdict::deny(401, 'Authentication token is invalid or expired.');
+        } finally {
+            JWT::$leeway = $previousLeeway;
         }
 
         // Issuer / audience binding — reject tokens minted for another service or

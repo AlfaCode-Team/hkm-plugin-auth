@@ -179,6 +179,19 @@ final class SessionAuthStage implements HttpStageContract
             $session->put(AuthService::SESSION_PERMISSIONS, $user->permissions);
         }
 
+        // Bind the resurrected session to THIS device, exactly as a password
+        // login does. Without this, remember-me produced a session with no
+        // fingerprint and no device-session row — so it was both weaker than a
+        // password login AND invisible to "sign out other devices", which could
+        // not revoke what it could not see. Remember-me is the longest-lived
+        // credential in the system; it should not be the least bound.
+        if ($container->has(DeviceSessionService::class)) {
+            $devices = $container->make(DeviceSessionService::class);
+            if ($devices instanceof DeviceSessionService) {
+                $devices->establish($session, $request, $user->id);
+            }
+        }
+
         $fresh = $users->cycleRememberToken($user->id);
         $cookies->queue(
             self::RECALLER_COOKIE,
