@@ -10,7 +10,12 @@
         "auth.identity"
     ],
     "require": {
-        "php": ">=8.4"
+        "php": ">=8.4",
+        "alfacode-team/php-service-platform": "dev-master",
+        "alfacode-team/hkm-plugin-authorization": "dev-main",
+        "alfacode-team/hkm-plugin-crypto": "dev-main",
+        "alfacode-team/hkm-plugin-database": "dev-main",
+        "alfacode-team/hkm-plugin-user": "dev-main"
     },
     "autoload": {
         "psr-4": {
@@ -19,5 +24,67 @@
         "files": [
             "Support/helpers.php"
         ]
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11 || ^12 || ^13",
+        "alfacode-team/hkm-plugin-audit": "dev-main",
+        "alfacode-team/hkm-plugin-cookie": "dev-main"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-kernel"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-plugin-audit"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-plugin-authorization"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-plugin-cookie"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-plugin-crypto"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-plugin-database"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/hkm-plugin-user"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/http"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/php-io-cli"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/AlfaCode-Team/Let-Migrate"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/hakrichTech/bindIt"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/hakrichTech/type-alias"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\Unit\\Plugins\\Auth\\": "tests/"
+        }
     }
 }
