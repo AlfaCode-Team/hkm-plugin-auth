@@ -1,7 +1,7 @@
 {
     "name": "auth",
     "version": "1.0.1",
-    "kernel": "^1.0",
+    "kernel": "^1.2",
     "solves": "auth.identity",
     "type": "module",
     "requires": [
@@ -15,10 +15,11 @@
         "Plugins\\Auth\\API\\Contracts\\AuthServiceContract",
         "Plugins\\Auth\\API\\Contracts\\RefreshTokenServiceContract"
     ],
+    "routePrefix": "/auth",
     "routes": [
         {
             "method": "POST",
-            "path": "/auth/login",
+            "path": "/login",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@login",
             "filters": [
                 "throttle:10,1"
@@ -26,17 +27,17 @@
         },
         {
             "method": "POST",
-            "path": "/auth/logout",
+            "path": "/logout",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@logout"
         },
         {
             "method": "GET",
-            "path": "/auth/me",
+            "path": "/me",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@me"
         },
         {
             "method": "GET",
-            "path": "/auth/sessions",
+            "path": "/sessions",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@sessions",
             "filters": [
                 "auth"
@@ -44,7 +45,7 @@
         },
         {
             "method": "DELETE",
-            "path": "/auth/sessions/{id}",
+            "path": "/sessions/{id}",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@revokeSession",
             "filters": [
                 "auth"
@@ -52,7 +53,7 @@
         },
         {
             "method": "POST",
-            "path": "/auth/logout-other-devices",
+            "path": "/logout-other-devices",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@logoutOtherDevices",
             "filters": [
                 "auth",
@@ -61,7 +62,7 @@
         },
         {
             "method": "GET",
-            "path": "/auth/tokens",
+            "path": "/tokens",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\PersonalAccessTokenController@index",
             "filters": [
                 "auth"
@@ -69,7 +70,7 @@
         },
         {
             "method": "POST",
-            "path": "/auth/tokens",
+            "path": "/tokens",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\PersonalAccessTokenController@store",
             "filters": [
                 "auth",
@@ -78,7 +79,7 @@
         },
         {
             "method": "DELETE",
-            "path": "/auth/tokens/{id}",
+            "path": "/tokens/{id}",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\PersonalAccessTokenController@destroy",
             "filters": [
                 "auth"
@@ -86,7 +87,7 @@
         },
         {
             "method": "POST",
-            "path": "/auth/token/refresh",
+            "path": "/token/refresh",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\TransientTokenController@refresh",
             "filters": [
                 "auth"
@@ -94,7 +95,7 @@
         },
         {
             "method": "POST",
-            "path": "/auth/refresh",
+            "path": "/refresh",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\AuthTokenController@refresh",
             "filters": [
                 "throttle:30,1"
@@ -102,12 +103,12 @@
         },
         {
             "method": "POST",
-            "path": "/auth/refresh/logout",
+            "path": "/refresh/logout",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\AuthTokenController@logout"
         },
         {
             "method": "POST",
-            "path": "/auth/password/forgot",
+            "path": "/password/forgot",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\PasswordResetController@forgot",
             "filters": [
                 "throttle:5,1"
@@ -119,7 +120,7 @@
         },
         {
             "method": "POST",
-            "path": "/auth/password/verify-otp",
+            "path": "/password/verify-otp",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\PasswordResetController@verifyOtp",
             "filters": [
                 "throttle:10,1"
@@ -127,7 +128,7 @@
         },
         {
             "method": "POST",
-            "path": "/auth/password/reset",
+            "path": "/password/reset",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\PasswordResetController@reset",
             "filters": [
                 "throttle:10,1"
