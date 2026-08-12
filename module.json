@@ -18,6 +18,15 @@
     "routePrefix": "/auth",
     "routes": [
         {
+            "method": "GET",
+            "path": "/login",
+            "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\AuthPageController@loginPage",
+            "name": "auth.login",
+            "requires": [
+                "http.pageflow"
+            ]
+        },
+        {
             "method": "POST",
             "path": "/login",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionAuthController@login",
@@ -234,6 +243,26 @@
         },
         {
             "key": "AUTH_PROVIDER",
+            "type": "string",
+            "required": false
+        },
+        {
+            "key": "APP_NAME",
+            "type": "string",
+            "required": false
+        },
+        {
+            "key": "AUTH_REGISTER_URL",
+            "type": "string",
+            "required": false
+        },
+        {
+            "key": "AUTH_FORGOT_PASSWORD_URL",
+            "type": "string",
+            "required": false
+        },
+        {
+            "key": "AUTH_PAGE_SURFACE",
             "type": "string",
             "required": false
         }
