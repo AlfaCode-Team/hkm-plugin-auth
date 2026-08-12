@@ -1,5 +1,86 @@
+
+
+# ── NATIVE LAUNCHER (compiled by `zig build` into bin/) ───────
+# bin/psp (the PHP CLI) IS tracked; the arch-specific Zig binaries are not.
+/bin/hkm
+/bin/hkm-config
+# zig build output — rebuilt by `zig build` / tools/bundle.sh; never shipped from git.
+tools/zig-out/
+
+
+# ── AI ASSISTANT / INTERNAL DOCS (kept local, NOT shipped to GitHub) ──
+/.claude/
+/CLAUDE.md
+/.github/copilot-instructions.md
+# Ignore each entry under docs/ (not the dir itself, so the negation below works):
+/docs/*
+# ...but publish the curated, reader-facing guides (docs/ai-context stays ignored):
+!/docs/guides/
+
+
+# ── COMPOSER ──────────────────────────────────────────────────
 /vendor/
-composer.lock
-.phpunit.cache/
+#(Uncomment if you want to ignore lock file for the library)
+composer.lock 
+*.bak
+
+
+# ── TESTING & COVERAGE ────────────────────────────────────────
+/.phpunit.cache/
 .phpunit.result.cache
+/coverage/
+/coverage-html/
+coverage.xml
+clover.xml
+phpunit.xml
+!phpunit.xml.dist
+infection.log
+
+# ── STATIC ANALYSIS & REFACTORING CACHES ──────────────────────
+.php-cs-fixer.cache
+/.phpstan.cache/
+/.rector/
+phpstan-results.json
+
+# ── PROFILING & DEBUGGING (Xdebug) ────────────────────────────
+cachegrind.out.*
+xdebug.log
+error_log
+php_errors.log
+
+# ── BUILD ARTIFACTS (If you compile the CLI) ──────────────────
+/build/
+/dist/
+/dist-toolchain/
+*.phar
+*.pdf
+
+# ── RUNTIME STATE (per-project var/ is ephemeral, regenerable) ─
+# Root-level var/ (base fallback) + per-project projects/*/var/.
+
+
+# ── PER-PROJECT DATABASE & CONFIGURATION ──────────────────────
+# Keep folder structure via .gitkeep, ignore generated/local files.
+__dev__
+
+
+# ── ENVIRONMENT & DOCKER ──────────────────────────────────────
+.env
+.env.*.local
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ── OS & IDEs ─────────────────────────────────────────────────
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+Thumbs.db
+ehthumbs.db
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+**/.zig-cache
