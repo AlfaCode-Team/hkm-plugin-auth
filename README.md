@@ -609,3 +609,9 @@ per-process in-memory `CachePort`.
 ---
 
 *OAuth 2.1 / OIDC authorization-server flows live in the `Plugins\OAuth2` plugin.*
+
+## Documentation
+
+- [CLAUDE.md](CLAUDE.md) — this plugin's contract, config and rules (start here).
+- [docs/AUTH.md](docs/AUTH.md) — the full Auth reference.
+- [Kernel guides](https://github.com/AlfaCode-Team/hkm-kernel/tree/main/docs/guides) — the framework contracts this plugin builds on.
