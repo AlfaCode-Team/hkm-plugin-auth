@@ -494,7 +494,7 @@ Two templates in `resources/views/`, namespace `auth`, `global: false`:
 Neither contains a login link or a token beyond the OTP itself. Both are
 brand-neutral inline-CSS HTML. **Override** either from a project by placing your
 own `resources/views/auth/password-otp.php` in the project view path — the
-project-first cascade wins (see RESOURCE RESOLUTION in `CLAUDE.md`).
+project-first cascade wins (see [16_PLUGINS.md](https://github.com/AlfaCode-Team/hkm-kernel/blob/main/docs/guides/16_PLUGINS.md)).
 
 Both routes must declare `"requires": ["mail.delivery", "view.rendering"]`.
 Without a bound `MailPort` the flow still works — it just sends nothing.
@@ -612,6 +612,5 @@ per-process in-memory `CachePort`.
 
 ## Documentation
 
-- [CLAUDE.md](CLAUDE.md) — this plugin's contract, config and rules (start here).
 - [docs/AUTH.md](docs/AUTH.md) — the full Auth reference.
 - [Kernel guides](https://github.com/AlfaCode-Team/hkm-kernel/tree/main/docs/guides) — the framework contracts this plugin builds on.
