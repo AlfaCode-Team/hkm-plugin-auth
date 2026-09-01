@@ -85,6 +85,36 @@ final class FakeUserService implements UserServiceContract
     public function cycleRememberToken(string $userId, bool $checkMembership = false): string { return 'rotated'; }
     public function clearRememberToken(string $userId, bool $checkMembership = false): void {}
 
+    /**
+     * Lockout state, added to UserServiceContract by the user plugin.
+     *
+     * Functional rather than throwing, because the auth stack is the thing that
+     * LOCKS an account out — a double that throws here would make any future
+     * test of that path start by rewriting this file.
+     *
+     * @var array<string, bool> id => locked out
+     */
+    public array $lockedOut = [];
+
+    public function lockoutStatus(string $userId): bool
+    {
+        // The contract is explicit: an unknown user is false, never an
+        // exception — there is nothing to leak about an account that does not
+        // exist.
+        return $this->lockedOut[$userId] ?? false;
+    }
+
+    public function clearLockout(string $userId): bool
+    {
+        if (!isset($this->byId[$userId])) {
+            return false;
+        }
+
+        $this->lockedOut[$userId] = false;
+
+        return true;
+    }
+
     public function list(ListUsersQuery $query): UserPage { throw new \BadMethodCallException(); }
     public function register(RegisterUserDTO $dto): UserDTO { throw new \BadMethodCallException(); }
     public function registerPublic(RegisterUserDTO $dto): string { throw new \BadMethodCallException(); }

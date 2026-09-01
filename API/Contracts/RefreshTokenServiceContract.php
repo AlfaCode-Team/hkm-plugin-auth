@@ -29,7 +29,7 @@ interface RefreshTokenServiceContract
     /**
      * Rotate a refresh token: revoke it, mint a new refresh + access token.
      *
-     * @throws \Plugins\Auth\Domain\Exceptions\InvalidRefreshTokenException (→ 401)
+     * @throws \Plugins\Auth\Application\Exceptions\InvalidRefreshTokenException (→ 401)
      */
     public function rotate(string $rawToken, ?string $ip = null): RefreshRotation;
 

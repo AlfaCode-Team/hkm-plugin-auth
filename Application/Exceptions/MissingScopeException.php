@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Plugins\Auth\Domain\Exceptions;
+namespace Plugins\Auth\Application\Exceptions;
 
 /**
  * Thrown when a token is valid but lacks a required scope/ability. `scopes()`

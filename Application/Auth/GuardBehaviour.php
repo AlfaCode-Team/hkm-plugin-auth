@@ -6,7 +6,7 @@ namespace Plugins\Auth\Application\Auth;
 
 use Plugins\Auth\Application\Ports\Authenticatable;
 use Plugins\Auth\Application\Ports\UserProvider;
-use Plugins\Auth\Domain\Exceptions\AuthenticationException;
+use Plugins\Auth\Application\Exceptions\AuthenticationException;
 
 /**
  * GuardBehaviour — shared current-user accessors for guards. GDA-native port of

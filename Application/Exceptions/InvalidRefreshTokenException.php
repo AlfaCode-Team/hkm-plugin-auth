@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Plugins\Auth\Domain\Exceptions;
+namespace Plugins\Auth\Application\Exceptions;
 
 /**
  * Raised when a refresh token is unknown, expired, or revoked. Maps to HTTP 401

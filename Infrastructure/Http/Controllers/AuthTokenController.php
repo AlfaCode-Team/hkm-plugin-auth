@@ -6,7 +6,7 @@ namespace Plugins\Auth\Infrastructure\Http\Controllers;
 
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Response;
 use Plugins\Auth\API\Contracts\RefreshTokenServiceContract;
-use Plugins\Auth\Domain\Exceptions\InvalidRefreshTokenException;
+use Plugins\Auth\Application\Exceptions\InvalidRefreshTokenException;
 use Project\Http\Controllers\ApiController;
 
 /**

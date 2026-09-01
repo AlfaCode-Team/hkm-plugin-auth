@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Plugins\Auth\Application\Ports\RefreshTokenStore;
 use Plugins\Auth\Application\Services\RefreshTokenService;
 use Plugins\Auth\Domain\Entities\RefreshTokenRecord;
-use Plugins\Auth\Domain\Exceptions\InvalidRefreshTokenException;
+use Plugins\Auth\Application\Exceptions\InvalidRefreshTokenException;
 use Tests\Unit\Plugins\Auth\Support\FakeAuthService;
 
 #[CoversClass(RefreshTokenService::class)]

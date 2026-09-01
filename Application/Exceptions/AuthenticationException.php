@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Plugins\Auth\Domain\Exceptions;
+namespace Plugins\Auth\Application\Exceptions;
 
 use AlfacodeTeam\PhpServicePlatform\Kernel\Exceptions\SecurityException;
 

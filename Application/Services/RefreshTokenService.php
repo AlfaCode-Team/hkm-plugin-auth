@@ -10,7 +10,7 @@ use Plugins\Auth\API\Contracts\RefreshTokenServiceContract;
 use Plugins\Auth\API\DTOs\RefreshRotation;
 use Plugins\Auth\API\DTOs\RefreshTokenIssued;
 use Plugins\Auth\Application\Ports\RefreshTokenStore;
-use Plugins\Auth\Domain\Exceptions\InvalidRefreshTokenException;
+use Plugins\Auth\Application\Exceptions\InvalidRefreshTokenException;
 use Plugins\Auth\Support\Token;
 
 /**

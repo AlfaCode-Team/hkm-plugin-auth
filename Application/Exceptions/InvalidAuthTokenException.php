@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Plugins\Auth\Domain\Exceptions;
+namespace Plugins\Auth\Application\Exceptions;
 
 /**
  * A supplied token was structurally valid but rejected (wrong owner, expired,
