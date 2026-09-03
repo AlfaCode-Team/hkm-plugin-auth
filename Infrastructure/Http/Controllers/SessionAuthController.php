@@ -72,11 +72,17 @@ final class SessionAuthController extends ApiController
         // binds the device fingerprint + auth_sessions row, and (when asked)
         // queues the remember-me recaller — all internally.
         if (!$guard->attempt($this->credentials($identifier, $password), $request->boolean('remember'))) {
-            // One refusal is NOT a credential problem: a correct password on an
-            // account that never confirmed its email. Reported as "Invalid
-            // credentials." it sends everyone who just signed up back to retype
-            // a password that was right, with no hint of what to do — so name
-            // it, and point at the page that fixes it.
+            // COMPATIBILITY PATH — normally unreachable now.
+            //
+            // Under soft verification (User::canLogin() since user v2.2.0) an
+            // unconfirmed address no longer refuses sign-in: the attempt above
+            // SUCCEEDS and the banner, not a 401, is what asks the person to
+            // verify. This branch survives for a deployment still running an
+            // older User plugin, where the hard gate is intact and a correct
+            // password on an unverified account lands here — reported as
+            // "Invalid credentials." it would send everyone who just signed up
+            // back to retype a password that was right, with no hint of what to
+            // do, so it is named and pointed at the page that fixes it.
             //
             // Disclosure is safe because the User service only answers once the
             // password matches: someone without the credentials still sees the
@@ -185,6 +191,7 @@ final class SessionAuthController extends ApiController
             'roles'       => $identity->roles,
             'permissions' => $identity->permissions,
             'via'         => $identity->tokenType,
+            'emailVerified' => $this->emailVerified($identity->userId),
         ]);
     }
 
@@ -253,11 +260,41 @@ final class SessionAuthController extends ApiController
             return [];
         }
 
+        $id = (string) $user->getAuthIdentifier();
+
         return [
-            'id'       => $user->getAuthIdentifier(),
-            'email'    => $user->getEmail(),
-            'username' => $user->getUsername(),
+            'id'            => $id,
+            'email'         => $user->getEmail(),
+            'username'      => $user->getUsername(),
+            'emailVerified' => $this->emailVerified($id),
         ];
+    }
+
+    /**
+     * Is this account's address confirmed? Drives the "verify your email"
+     * banner — advisory UI, not a gate.
+     *
+     * Unknown (no User service bound) answers TRUE, and the asymmetry is
+     * deliberate: this value only decides whether to NAG, so guessing "not
+     * verified" would show every user of a deployment without the User plugin a
+     * banner they can never dismiss. Enforcement is a separate decision made by
+     * RequireVerifiedEmailStage, which fails the other way — it refuses when it
+     * cannot tell. Advisory defaults open, enforcement defaults closed.
+     */
+    private function emailVerified(string $userId): bool
+    {
+        if ($this->users === null || $userId === '') {
+            return true;
+        }
+
+        // isAuth: true skips find()'s requireSelfOrPermission() check. It has to:
+        // on the login path this runs BEFORE the request Identity exists — the
+        // Identity was resolved at SecurityStage, when the caller was still a
+        // guest — so the authorized read would throw `user.unauthenticated` and
+        // turn a successful sign-in into a 403. This is an auth-internal read of
+        // the account that just authenticated, which is exactly what the flag is
+        // for.
+        return $this->users->find($userId, false, true)?->emailVerified ?? true;
     }
 
     /** The active session store, for flagging the caller's own device in listDevices(). */
