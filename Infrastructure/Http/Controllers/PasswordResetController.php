@@ -6,6 +6,7 @@ namespace Plugins\Auth\Infrastructure\Http\Controllers;
 
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Request;
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Response;
+use AlfacodeTeam\PhpServicePlatform\Kernel\Ports\CachePort;
 use AlfacodeTeam\PhpServicePlatform\Kernel\Ports\MailPort;
 use Plugins\Auth\Application\Ports\PasswordBroker;
 use Project\Http\Controllers\ApiController;
@@ -27,9 +28,23 @@ final class PasswordResetController extends ApiController
     private const GENERIC_FORGOT_MESSAGE =
         "If that email is registered, you'll receive a 6-digit code shortly. Check your inbox and spam folder.";
 
+    /** Message for a caller that has run out of sends for this address. */
+    private const CAPPED_FORGOT_MESSAGE =
+        "You've requested several codes for this address already. Use the most recent one, or try again later.";
+
+    /** Cache key prefixes for the send limiter — hashed address, never the address. */
+    private const COOLDOWN_PREFIX = 'auth:pwreset:send:cool:';
+    private const SENDS_PREFIX    = 'auth:pwreset:send:count:';
+
     public function __construct(
         private readonly PasswordBroker $broker,
         private readonly ?MailPort $mail = null,
+        /**
+         * Optional — the send limiter's store. Without it the endpoint keeps its
+         * previous behaviour (the broker's own re-issue throttle still applies),
+         * so a deployment with no cache degrades rather than breaking.
+         */
+        private readonly ?CachePort $cache = null,
     ) {
     }
 
@@ -40,23 +55,120 @@ final class PasswordResetController extends ApiController
             return $this->unprocessable(['email' => 'An email address is required.']);
         }
 
-        $sent = $this->broker->sendOtp($email);
+        // HOW MANY CODES ONE ADDRESS MAY BE SENT.
+        //
+        // The route's throttle counts REQUESTS PER IP, which bounds the attacker
+        // but not the victim: rotate IPs and one inbox still takes an unbounded
+        // stream of codes, each one invalidating the last. The limiter below is
+        // keyed on the ADDRESS, so the mailbox is what is protected:
+        //
+        //   • a cooldown between sends (default 60s), so "Resend" cannot be held
+        //     down, and the client is told how long to wait;
+        //   • a ceiling per window (default 5/hour), after which nothing is sent
+        //     until the window rolls over.
+        //
+        // Both are keyed on the SUBMITTED address whether or not it belongs to
+        // an account, so the timings are identical for a registered and an
+        // unregistered address and the endpoint stays enumeration-safe.
+        $limit = $this->sendAllowance($email);
 
-        if ($sent !== null && $this->mail !== null) {
-            try {
-                $this->mail->send(
-                    $sent['email'],
-                    'Your password reset code',
-                    'auth::password-otp',
-                    ['otp' => $sent['otp'], 'expiresMinutes' => 10],
-                );
-            } catch (\Throwable) {
-                // Non-fatal — never leak delivery problems to the caller.
+        if ($limit['allowed']) {
+            $sent = $this->broker->sendOtp($email);
+
+            if ($sent !== null && $this->mail !== null) {
+                try {
+                    $this->mail->send(
+                        $sent['email'],
+                        'Your password reset code',
+                        'auth::password-otp',
+                        ['otp' => $sent['otp'], 'expiresMinutes' => 10],
+                    );
+                } catch (\Throwable) {
+                    // Non-fatal — never leak delivery problems to the caller.
+                }
             }
         }
 
-        // Always 200 — never reveals whether an account exists.
-        return $this->ok(['message' => self::GENERIC_FORGOT_MESSAGE]);
+        // Always 200 — never reveals whether an account exists. `retryAfter` is
+        // how long until this address may be sent another code (0 = now), and
+        // `remaining` how many are left in the window; both are facts about the
+        // caller's own requests, so neither discloses anything about the account.
+        return $this->ok([
+            'message'    => $limit['capped'] ? self::CAPPED_FORGOT_MESSAGE : self::GENERIC_FORGOT_MESSAGE,
+            'retryAfter' => $limit['retryAfter'],
+            'remaining'  => $limit['remaining'],
+        ]);
+    }
+
+    /**
+     * An int setting, where an UNSET var takes the default but an explicit "0"
+     * is honoured. `env(...) ?: $default` cannot express that — "0" is falsy, so
+     * an operator disabling the cooldown would silently get the default back.
+     */
+    private function intSetting(string $key, int $default): int
+    {
+        $raw = env($key);
+
+        return $raw === null || $raw === '' ? $default : (int) $raw;
+    }
+
+    /**
+     * Decide whether this address may be sent a code now, and what to tell the
+     * caller either way.
+     *
+     * @return array{allowed:bool, capped:bool, retryAfter:int, remaining:int}
+     */
+    private function sendAllowance(string $email): array
+    {
+        $max      = max(1, $this->intSetting('AUTH_OTP_MAX_SENDS', 5));
+        $window   = max(60, $this->intSetting('AUTH_OTP_SEND_WINDOW', 3600));
+        $cooldown = max(0, $this->intSetting('AUTH_OTP_SEND_COOLDOWN', 60));
+
+        // No cache bound: fail OPEN. The broker still refuses a re-issue inside
+        // its own throttle window, and the per-IP route throttle still applies —
+        // refusing every reset instead would be the worse failure.
+        if (!$this->cache instanceof CachePort) {
+            return ['allowed' => true, 'capped' => false, 'retryAfter' => 0, 'remaining' => $max];
+        }
+
+        $key = hash('sha256', $email);
+
+        // Cooldown first: it is the cheaper check and the common one.
+        if ($cooldown > 0 && $this->cache->has(self::COOLDOWN_PREFIX . $key)) {
+            return [
+                'allowed'   => false,
+                'capped'    => false,
+                'retryAfter' => $cooldown,
+                'remaining' => max(0, $max - (int) ($this->cache->get(self::SENDS_PREFIX . $key) ?? 0)),
+            ];
+        }
+
+        $sends = (int) ($this->cache->get(self::SENDS_PREFIX . $key) ?? 0);
+        if ($sends >= $max) {
+            return ['allowed' => false, 'capped' => true, 'retryAfter' => $window, 'remaining' => 0];
+        }
+
+        // Count the send BEFORE it happens: a mail transport that hangs or
+        // throws must still consume the allowance, or the limit is bypassable
+        // by whatever makes delivery fail.
+        //
+        // set() on the first send and increment() after, because increment()
+        // carries no TTL — a counter created by increment() alone would never
+        // expire and would lock the address out permanently.
+        $sends === 0
+            ? $this->cache->set(self::SENDS_PREFIX . $key, 1, $window)
+            : $this->cache->increment(self::SENDS_PREFIX . $key);
+
+        if ($cooldown > 0) {
+            $this->cache->set(self::COOLDOWN_PREFIX . $key, 1, $cooldown);
+        }
+
+        return [
+            'allowed'   => true,
+            'capped'    => false,
+            'retryAfter' => $cooldown,
+            'remaining' => max(0, $max - ($sends + 1)),
+        ];
     }
 
     public function verifyOtp(): Response

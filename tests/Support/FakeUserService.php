@@ -54,6 +54,14 @@ final class FakeUserService implements UserServiceContract
         return $id === null ? null : ($this->byId[$id] ?? null);
     }
 
+    /** identifier:password => email, for the "correct password, unverified" branch. */
+    public array $awaitingVerification = [];
+
+    public function credentialsAwaitingVerification(string $identifier, string $password): ?string
+    {
+        return $this->awaitingVerification[$identifier . ':' . $password] ?? null;
+    }
+
     public function findByRememberToken(string $token): ?UserDTO
     {
         $id = $this->rememberTokens[$token] ?? null;

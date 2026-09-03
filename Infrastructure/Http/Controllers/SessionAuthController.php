@@ -8,6 +8,8 @@ use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Response;
 use Plugins\Auth\Application\Ports\Authenticatable;
 use Plugins\Auth\Application\Services\DeviceSessionService;
 use Plugins\Session\Infrastructure\Http\StartSessionStage;
+use Plugins\User\API\Contracts\UserServiceContract;
+use Plugins\User\API\Support\VerificationBinding;
 use Project\Http\Controllers\ApiController;
 use Project\Http\Controllers\Concerns\InteractsWithAuthManager;
 
@@ -40,6 +42,13 @@ final class SessionAuthController extends ApiController
         // Only the device-management endpoints (list / revoke-by-id) touch the
         // registry directly; the login/logout flow goes through the guard.
         private readonly ?DeviceSessionService $devices = null,
+        /**
+         * Optional. Used for exactly one thing: after the guard has already
+         * refused, asking whether the credentials were in fact CORRECT and the
+         * account is merely unverified — the single failure the person can act
+         * on. Unbound, login falls back to the generic 401.
+         */
+        private readonly ?UserServiceContract $users = null,
     ) {
     }
 
@@ -63,6 +72,20 @@ final class SessionAuthController extends ApiController
         // binds the device fingerprint + auth_sessions row, and (when asked)
         // queues the remember-me recaller — all internally.
         if (!$guard->attempt($this->credentials($identifier, $password), $request->boolean('remember'))) {
+            // One refusal is NOT a credential problem: a correct password on an
+            // account that never confirmed its email. Reported as "Invalid
+            // credentials." it sends everyone who just signed up back to retype
+            // a password that was right, with no hint of what to do — so name
+            // it, and point at the page that fixes it.
+            //
+            // Disclosure is safe because the User service only answers once the
+            // password matches: someone without the credentials still sees the
+            // uniform 401 below, and account existence stays unrevealed.
+            $pending = $this->users?->credentialsAwaitingVerification($identifier, $password);
+            if ($pending !== null) {
+                return $this->emailUnverified($pending);
+            }
+
             // Uniform message — never reveals whether the account exists or is locked.
             return Response::unauthorized('Invalid credentials.');
         }
@@ -87,6 +110,36 @@ final class SessionAuthController extends ApiController
         }
 
         return $this->ok(['user' => $this->shape($guard->user()), 'redirectTo' => $redirect]);
+    }
+
+    /**
+     * 403 for "the password was right, the address was never confirmed".
+     *
+     * Distinct from the 401 so the client can route to the verification page
+     * rather than re-prompting for a password that is already correct. The
+     * address itself is NOT echoed back — the caller typed it, and the account
+     * it belongs to is named only by the binding, which is an opaque keyed hash.
+     *
+     * That binding is what makes the next screen work: it admits this browser
+     * to /verify-email and pins any resend there to THIS address, so the person
+     * refused here can get a fresh link without a second sign-in attempt.
+     */
+    private function emailUnverified(string $email): Response
+    {
+        $this->queueCookie(
+            VerificationBinding::COOKIE,
+            VerificationBinding::hash($email),
+            VerificationBinding::MINUTES,
+        );
+
+        return Response::json([
+            'error' => [
+                'code'    => 'auth.email_unverified',
+                'message' => 'Your email address has not been verified yet. '
+                    . 'Open the link we emailed you, or request a new one, then sign in.',
+                'verifyUrl' => '/verify-email',
+            ],
+        ], 403);
     }
 
     /**

@@ -1,6 +1,6 @@
 {
     "name": "auth",
-    "version": "1.2.1",
+    "version": "1.4.0",
     "kernel": "^1.2",
     "solves": "auth.identity",
     "type": "module",
@@ -264,6 +264,21 @@
         {
             "key": "AUTH_PAGE_SURFACE",
             "type": "string",
+            "required": false
+        },
+        {
+            "key": "AUTH_OTP_MAX_SENDS",
+            "type": "int",
+            "required": false
+        },
+        {
+            "key": "AUTH_OTP_SEND_WINDOW",
+            "type": "int",
+            "required": false
+        },
+        {
+            "key": "AUTH_OTP_SEND_COOLDOWN",
+            "type": "int",
             "required": false
         }
     ],

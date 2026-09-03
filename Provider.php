@@ -145,6 +145,9 @@ final class Provider implements ModuleContract
         $container->bindInternal(SessionAuthController::class, static fn(ModuleContainer $c) =>
             new SessionAuthController(
                 $c->make(\Plugins\Auth\Application\Services\DeviceSessionService::class),
+                // Optional: only used to explain ONE refusal (correct password,
+                // unverified email). Unbound, login keeps its generic 401.
+                $c->has(UserServiceContract::class) ? $c->make(UserServiceContract::class) : null,
             )
         );
 
@@ -261,6 +264,10 @@ final class Provider implements ModuleContract
                         $c->has(\AlfacodeTeam\PhpServicePlatform\Kernel\Ports\MailPort::class)
                             ? $c->make(\AlfacodeTeam\PhpServicePlatform\Kernel\Ports\MailPort::class)
                             : null,
+                        // Backs the per-address send limiter (cooldown + cap).
+                        // Optional: unbound, the endpoint falls back to the
+                        // broker's own re-issue throttle.
+                        $c->has(CachePort::class) ? $c->make(CachePort::class) : null,
                     )
             );
         }
