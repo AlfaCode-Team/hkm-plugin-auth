@@ -43,7 +43,6 @@ return new class implements MigrationInterface {
 
             $t->engine('InnoDB');
             $t->charset('utf8mb4');
-            $t->collation('utf8mb4_0900_ai_ci');
             $t->rowFormat('DYNAMIC');
         });
     }
