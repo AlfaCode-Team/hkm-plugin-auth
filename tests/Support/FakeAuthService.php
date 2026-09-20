@@ -43,6 +43,7 @@ final class FakeAuthService implements AuthServiceContract
     public function startSession(SessionPort $session, string $userId, array $roles = [], array $permissions = [], string $tenantId = '', string $username = '', string $email = '', string $fullName = '', ?string $avatarUrl = null): void {}
     public function endSession(SessionPort $session): void {}
     public function revokeJwt(string $jti, int $ttlSeconds = 3600): void {}
+    public function revokeJwtsFor(string $userId, int $ttlSeconds = 3600): void {}
     public function hashPassword(string $plain): string { return 'hash'; }
     public function verifyPassword(string $plain, string $hash): bool { return true; }
 }

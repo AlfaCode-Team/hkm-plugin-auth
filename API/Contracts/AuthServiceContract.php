@@ -112,6 +112,26 @@ interface AuthServiceContract
     public function revokeJwt(string $jti, int $ttlSeconds = 3600): void;
 
     /**
+     * Revoke every JWT this user currently holds, by recording the moment their
+     * authority changed. Tokens minted BEFORE it stop verifying on their next
+     * request; a token minted after it — a fresh sign-in — is unaffected, so
+     * revoking does not also lock the user out of signing back in.
+     *
+     * This is how a ban, a role change, a tenant move or a lost device bites at
+     * the NEXT REQUEST: an access token already in a client's memory cannot be
+     * un-issued, and deny-listing each one needs every `jti`, which the issuer
+     * does not keep.
+     *
+     * Best-effort, like {@see revokeJwt()}: with no cache bound it does nothing,
+     * and verification fails OPEN on a cache outage rather than signing everyone
+     * out when the cache blinks.
+     *
+     * @param int $ttlSeconds how long the cutoff is kept — at least the lifetime
+     *                        of the longest-lived token it must kill
+     */
+    public function revokeJwtsFor(string $userId, int $ttlSeconds = 3600): void;
+
+    /**
      * Hash a plaintext password for storage (bcrypt/argon2 via HashingPort).
      */
     public function hashPassword(string $plain): string;

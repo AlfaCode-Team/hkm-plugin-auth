@@ -233,6 +233,22 @@ final class AuthService implements AuthServiceContract
         $this->cache->set(JwtAuthLayer::revocationKey($jti), 1, max(1, $ttlSeconds));
     }
 
+    public function revokeJwtsFor(string $userId, int $ttlSeconds = 3600): void
+    {
+        if ($userId === '' || $this->cache === null) {
+            return;
+        }
+
+        // The cutoff is NOW: every token already issued predates it, and the
+        // next one issued does not. Kept at least as long as the longest-lived
+        // token it has to outlive, or a token could outlast its own revocation.
+        $this->cache->set(
+            JwtAuthLayer::userRevocationKey($userId),
+            time(),
+            max(1, $ttlSeconds),
+        );
+    }
+
     public function hashPassword(string $plain): string
     {
         return $this->hasher->make($plain);

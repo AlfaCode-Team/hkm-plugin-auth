@@ -100,6 +100,23 @@ final class JwtAuthLayer implements SecurityLayerContract
         return 'auth:jwt:revoked:' . $jti;
     }
 
+    /**
+     * Cache key holding the moment a user's AUTHORITY last changed.
+     *
+     * Every token minted before it is dead; one minted after it is not. That
+     * distinction is the whole point — revoking a user's access must not also
+     * stop them signing back in, which is what deny-listing them outright does.
+     *
+     * It is the answer to "the ban has to bite on the NEXT REQUEST": an access
+     * token already in a client's memory cannot be un-issued, so a change of
+     * role, of tenant, of device — or a ban — records a cutoff here instead and
+     * every outstanding token fails its next verification.
+     */
+    public static function userRevocationKey(string $userId): string
+    {
+        return 'auth:jwt:revoked-before:' . $userId;
+    }
+
     public function check(Request $request): SecurityVerdict
     {
         $header = $request->header('Authorization') ?? '';
@@ -170,6 +187,32 @@ final class JwtAuthLayer implements SecurityLayerContract
             }
         }
 
+        // Authority cutoff — every token this user held before their role,
+        // tenant, device or status last changed is dead, while a token minted
+        // since (a fresh sign-in) still works. Same fail-OPEN policy as the
+        // deny-list above: a cache outage must not sign out the field.
+        $subject = (string) ($claims['sub'] ?? '');
+        if ($this->revocations !== null && $subject !== '') {
+            try {
+                $cutoff = $this->revocations->get(self::userRevocationKey($subject));
+            } catch (\Throwable) {
+                $cutoff = null;   // Cache unavailable — proceed on the valid signature.
+            }
+
+            if (is_numeric($cutoff)) {
+                // No `iat` means the token cannot be shown to POST-DATE the
+                // cutoff, and an unprovable token is refused rather than given
+                // the benefit of the doubt — the cutoff exists precisely because
+                // this user's outstanding tokens are not to be honoured.
+                // AuthService::issueJwt() always stamps `iat`.
+                $issuedAt = $claims['iat'] ?? null;
+
+                if (!is_numeric($issuedAt) || (int) $issuedAt < (int) $cutoff) {
+                    return $this->refuse($request, 'Authentication token has been revoked.');
+                }
+            }
+        }
+
         // Tenant context rides on the signed `tnt` claim (legacy `tenant`
         // accepted for BC). Empty = UNSCOPED: the request keeps the central
         // connection (login, tenant picker, public pages). A non-empty tenant is
@@ -178,7 +221,7 @@ final class JwtAuthLayer implements SecurityLayerContract
         $tenant = (string) ($claims['tnt'] ?? $claims['tenant'] ?? '');
 
         $identity = new Identity(
-            userId:      (string) ($claims['sub'] ?? ''),
+            userId:      $subject,
             tenantId:    $tenant,
             roles:       array_values((array) ($claims['roles'] ?? [])),
             permissions: array_values((array) ($claims['permissions'] ?? [])),
