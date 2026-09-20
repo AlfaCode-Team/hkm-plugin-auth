@@ -47,6 +47,50 @@ final class JwtAuthLayer implements SecurityLayerContract
         private readonly ?string $audience = null,
         private readonly int $leeway = 0,
         private readonly ?CachePort $revocations = null,
+        /**
+         * `kid` => key material, for a server that ROTATES its signing key.
+         *
+         * A token carries the `kid` of the key that signed it, so a verifier
+         * holding only the current key rejects every token still in a handset's
+         * memory the moment the key turns over — which signs out every user at
+         * once rather than letting the old tokens expire on their own. Keep a
+         * retired key here for at least the lifetime of the longest-lived token
+         * it signed.
+         *
+         * With entries present the token's `kid` selects the key and a token
+         * without one, or with an unknown one, is refused. Empty = the single
+         * `$secret` verifies everything, exactly as before.
+         *
+         * @var array<string, string>
+         */
+        private readonly array $keys = [],
+        /**
+         * Cookie to read the token from when there is no `Authorization` header.
+         *
+         * A browser cannot attach a header to a plain navigation, so a web
+         * console carrying the SAME token in an HttpOnly cookie would otherwise
+         * need a second verifier and a second token format. The header still
+         * WINS when both are present: a cookie is attached by the browser on the
+         * caller's behalf, a header is attached deliberately.
+         *
+         * '' = bearer only.
+         */
+        private readonly string $cookie = '',
+        /**
+         * What a BAD token produces: `true` (default) denies 401 here, before
+         * any module loads. `false` produces a GUEST identity and lets the
+         * request continue to the route's own authorization filter.
+         *
+         * Guest mode exists for an application whose error envelope differs from
+         * the kernel's — denying here returns the KERNEL's shape, and a client
+         * that cannot parse it shows the user nothing at all. Such an app denies
+         * in its own filter, in its own shape, and uses this layer only to
+         * resolve an identity when one is present.
+         *
+         * It is NOT a way to leave a route unprotected: with `false`, something
+         * downstream MUST reject the guest.
+         */
+        private readonly bool $denyInvalid = true,
     ) {
     }
 
@@ -59,14 +103,21 @@ final class JwtAuthLayer implements SecurityLayerContract
     public function check(Request $request): SecurityVerdict
     {
         $header = $request->header('Authorization') ?? '';
-        if ($header === '' || !str_starts_with($header, 'Bearer ')) {
+        $token  = str_starts_with($header, 'Bearer ') ? trim(substr($header, 7)) : '';
+
+        // The header wins; the cookie is the fallback for a navigation that
+        // cannot carry one.
+        if ($token === '' && $this->cookie !== '') {
+            $token = trim((string) ($request->cookie($this->cookie) ?? ''));
+        }
+
+        if ($token === '') {
             // Anonymous request — let downstream authorization decide.
             return SecurityVerdict::allow($request);
         }
 
-        $token = trim(substr($header, 7));
-        if ($token === '' || $this->secret === '') {
-            return SecurityVerdict::deny(401, 'Invalid or missing authentication token.');
+        if ($this->keys === [] && $this->secret === '') {
+            return $this->refuse($request, 'Invalid or missing authentication token.');
         }
 
         // Clock-skew tolerance for exp/iat/nbf. The JWT library only exposes
@@ -87,9 +138,10 @@ final class JwtAuthLayer implements SecurityLayerContract
         try {
             // Pin to a SINGLE algorithm — never let the token's own `alg` header
             // pick the verifier (prevents alg-confusion / HS-vs-RS downgrade).
-            $claims = (array) JWT::decode($token, new Key($this->secret, $this->algo));
+            // With a rotation set the `kid` picks the KEY, never the algorithm.
+            $claims = (array) JWT::decode($token, $this->verificationKeys());
         } catch (\Throwable) {
-            return SecurityVerdict::deny(401, 'Authentication token is invalid or expired.');
+            return $this->refuse($request, 'Authentication token is invalid or expired.');
         } finally {
             JWT::$leeway = $previousLeeway;
         }
@@ -97,10 +149,10 @@ final class JwtAuthLayer implements SecurityLayerContract
         // Issuer / audience binding — reject tokens minted for another service or
         // tenant boundary even if the signature is valid.
         if ($this->issuer !== null && ($claims['iss'] ?? null) !== $this->issuer) {
-            return SecurityVerdict::deny(401, 'Authentication token issuer is not trusted.');
+            return $this->refuse($request, 'Authentication token issuer is not trusted.');
         }
         if ($this->audience !== null && !$this->audienceMatches($claims['aud'] ?? null)) {
-            return SecurityVerdict::deny(401, 'Authentication token audience is not accepted.');
+            return $this->refuse($request, 'Authentication token audience is not accepted.');
         }
 
         // Revocation deny-list — a logged-out / compromised token is rejected
@@ -111,7 +163,7 @@ final class JwtAuthLayer implements SecurityLayerContract
         if ($this->revocations !== null && $jti !== '') {
             try {
                 if ($this->revocations->has(self::revocationKey($jti))) {
-                    return SecurityVerdict::deny(401, 'Authentication token has been revoked.');
+                    return $this->refuse($request, 'Authentication token has been revoked.');
                 }
             } catch (\Throwable) {
                 // Cache unavailable — proceed on the valid signature.
@@ -140,6 +192,41 @@ final class JwtAuthLayer implements SecurityLayerContract
         );
 
         return SecurityVerdict::allow($request->withIdentity($identity));
+    }
+
+    /**
+     * The key, or keyed set, to verify against.
+     *
+     * A single key when no rotation set is configured; otherwise the map
+     * firebase/php-jwt indexes by the token's `kid` header — a token naming a
+     * key that is not here fails to decode, which is the refusal we want.
+     *
+     * @return Key|array<string, Key>
+     */
+    private function verificationKeys(): Key|array
+    {
+        if ($this->keys === []) {
+            return new Key($this->secret, $this->algo);
+        }
+
+        $keys = [];
+        foreach ($this->keys as $kid => $material) {
+            $keys[(string) $kid] = new Key($material, $this->algo);
+        }
+
+        return $keys;
+    }
+
+    /**
+     * A bad token, answered per {@see $denyInvalid}: 401 here, or a guest
+     * identity for an application that refuses in its own error shape further
+     * down. NEVER throws — a security layer returns a verdict (GDA rule).
+     */
+    private function refuse(Request $request, string $reason): SecurityVerdict
+    {
+        return $this->denyInvalid
+            ? SecurityVerdict::deny(401, $reason)
+            : SecurityVerdict::allow($request);
     }
 
     /** `aud` may be a single string or a list; accept when our audience is present. */
