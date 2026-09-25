@@ -412,7 +412,11 @@ tenant-seat check happens at tenant-select).
 
 `POST /auth/token/refresh` (auth-filtered) — a session-authenticated SPA mints a
 short-lived (900s) JWT carrying the session identity's real permissions. A
-Bearer/PAT caller is refused (session only).
+Bearer/PAT caller is refused (session only). So is a session currently
+**switched** into another tenant (Tenancy's `ActiveTenantStage` binds the
+`tenant.host` container key only when it switches; while it is bound the mint is
+a 403): the switched scope is re-verified per request, and a token would
+freeze it past the policy that granted it.
 
 ### 11. Mobile JWT flow (`/auth/mobile/*`)
 

@@ -37,6 +37,26 @@ final class TransientTokenController extends ApiController
             return Response::unauthorized('A web session is required.');
         }
 
+        // ── never mint from a SWITCHED identity ──────────────────────────────
+        // Tenancy's ActiveTenantStage can re-scope a session into another
+        // tenant. The Identity is then the one INSIDE that tenant — its id, and
+        // a role a selection policy granted per request, possibly without any
+        // seat. A JWT minted from it would carry that scope for its whole
+        // lifetime and be routed by its signed claim at priority 10, where the
+        // policy that granted it is never consulted again. The switch is a
+        // view, re-verified per request; a token must not turn it into a
+        // credential.
+        //
+        // Detected by the `tenant.host` container key, which the stage binds
+        // ONLY when it actually switches — the same string-keyed seam
+        // signInDb() reads, so Auth takes no dependency on Tenancy. Comparing
+        // the Identity's tenant with the host's would misfire on a session
+        // whose tenant is legitimately '' on a tenant host.
+        $container = $this->resolveRequest()->container();
+        if ($container !== null && $container->has('tenant.host')) {
+            return Response::forbidden('Switch back to your own organisation before requesting a token.');
+        }
+
         $token = $this->auth->issueJwt(
             $identity->userId,
             [

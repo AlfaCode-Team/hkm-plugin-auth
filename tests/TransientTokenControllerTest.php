@@ -14,9 +14,18 @@ use Tests\Unit\Plugins\Auth\Support\FakeAuthService;
 #[CoversClass(TransientTokenController::class)]
 final class TransientTokenControllerTest extends TestCase
 {
-    private function controller(FakeAuthService $auth, Identity $identity): TransientTokenController
+    private function controller(FakeAuthService $auth, Identity $identity, ?string $tenantHost = null): TransientTokenController
     {
         $request = Request::build(method: 'POST', path: '/auth/token/refresh')->withIdentity($identity);
+
+        if ($tenantHost !== null) {
+            // What Tenancy's ActiveTenantStage leaves behind on a real switch.
+            $container = new \AlfacodeTeam\PhpServicePlatform\Kernel\Container\ModuleContainer(
+                new \AlfacodeTeam\PhpServicePlatform\Kernel\Container\CoreContainer(),
+            );
+            $container->bind('tenant.host', static fn (): string => $tenantHost);
+            $request = $request->withAttribute('tenant_host', $tenantHost)->withContainer($container);
+        }
 
         return (new TransientTokenController($auth))->setRequest($request);
     }
@@ -42,5 +51,33 @@ final class TransientTokenControllerTest extends TestCase
         // A JWT/PAT caller (tokenType != 'session') must not refresh a transient token.
         $response = $this->controller(new FakeAuthService(), new Identity('u1', '', [], [], 'jwt'))->refresh();
         self::assertSame(401, $response->getStatusCode());
+    }
+
+    public function test_a_switched_session_cannot_mint_a_token_scoped_to_the_tenant_it_is_viewing(): void
+    {
+        // Tenancy's ActiveTenantStage scoped this session into `child` with a
+        // per-request role; `tenant_host` is the tenant it signed in to. A JWT
+        // would freeze that scope past the policy that granted it.
+        $response = $this->controller(
+            new FakeAuthService(),
+            new Identity('u1', 'child', ['observer'], [], 'session'),
+            tenantHost: 'parent',
+        )->refresh();
+
+        self::assertSame(403, $response->getStatusCode());
+    }
+
+    public function test_an_unswitched_session_on_a_tenant_host_still_gets_its_token(): void
+    {
+        // `tenant_host` is published on every request the stage sees, switched
+        // or not — only the `tenant.host` binding marks a switch. A session
+        // whose own tenant is '' must not be mistaken for a switched one.
+        $request = Request::build(method: 'POST', path: '/auth/token/refresh')
+            ->withIdentity(new Identity('u1', '', ['admin'], [], 'session'))
+            ->withAttribute('tenant_host', 'parent');
+
+        $response = (new TransientTokenController(new FakeAuthService()))->setRequest($request)->refresh();
+
+        self::assertSame(200, $response->getStatusCode());
     }
 }
