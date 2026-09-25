@@ -55,36 +55,76 @@ final class Provider implements ModuleContract
         ];
     }
 
+    /**
+     * The connection auth state belongs to: the tenant the person SIGNED IN to.
+     *
+     * Normally that is simply the per-request `DatabasePort` — TenantContextStage
+     * resolved it from the hostname and every auth table lives there (central
+     * holds no sessions and no tokens; see the tenant-template migrations).
+     *
+     * It stops being the same thing the moment a deployment lets someone switch
+     * their ACTIVE tenant without signing in again — a parent administrator
+     * looking inside a child organisation, say. Tenancy's ActiveTenantStage
+     * rebinds `DatabasePort` to the selection and publishes the sign-in
+     * connection as `tenant.host.db` precisely so this layer can decline to
+     * follow.
+     *
+     * It must decline. `auth_sessions`, `refresh_tokens` and
+     * `personal_access_tokens` exist in EVERY tenant database, because every one
+     * is built from the same template — so following the switch does not fail
+     * loudly, it finds an empty table. A logout would report success and revoke
+     * nothing; a refresh would reject a token that is perfectly valid. Which
+     * tenant's data you are looking at is a view; which session you hold is not.
+     *
+     * Falls back to `DatabasePort` when the binding is absent, which is every
+     * deployment without tenant switching and every request that has not
+     * switched — so this is a no-op unless the situation it guards actually
+     * arises.
+     */
+    private static function signInDb(ModuleContainer $c): DatabasePort
+    {
+        return $c->has('tenant.host.db')
+            ? $c->make('tenant.host.db')
+            : $c->make(DatabasePort::class);
+    }
+
     public function register(ModuleContainer $container): void
     {
         // ONE nesting-aware transaction manager for ALL Auth writes. Every Auth
-        // repository resolves the per-request DatabasePort (the tenant connection
-        // TenantContextStage rebinds), so transactions MUST bracket that same
-        // connection — pinning this to the ConnectionManager default would open
-        // the transaction on central while the writes land in the tenant DB,
-        // leaving them effectively unbracketed. Shared (singleton) so composed
-        // flows (revokeOthers → establish) nest instead of double-beginning.
+        // repository resolves {@see signInDb()}, so transactions MUST bracket
+        // that same connection — pinning this to the ConnectionManager default
+        // would open the transaction on central while the writes land in the
+        // tenant DB, leaving them effectively unbracketed. The same applies to
+        // an active-tenant switch: if the repositories decline to follow it and
+        // this did not, every write would be bracketed on the wrong database.
+        // Shared (singleton) so composed flows (revokeOthers → establish) nest
+        // instead of double-beginning.
         $container->singleton('auth.transaction', static fn(ModuleContainer $c) =>
             new \AlfacodeTeam\PhpServicePlatform\Kernel\Database\TransactionManager(
-                $c->make(DatabasePort::class),
+                self::signInDb($c),
             )
         );
 
         $container->bindInternal(PersonalAccessTokenRepository::class, static fn(ModuleContainer $c) =>
             new PersonalAccessTokenRepository(
-                // Tenant connection — auth credentials are tenant-scoped, so this
-                // is the per-request (tenant-rebound) DatabasePort, never the
-                // ConnectionManager default.
-                $c->make(DatabasePort::class),
+                // Tenant connection — auth credentials are tenant-scoped, so
+                // never the ConnectionManager default. Specifically the SIGN-IN
+                // tenant's, which an active-tenant switch does not move; see
+                // signInDb().
+                self::signInDb($c),
                 env('AUTH_PAT_TABLE') ?: 'personal_access_tokens',
             )
         );
 
-        // Device-session registry (central — auth_sessions is control-plane).
+        // Device-session registry. `auth_sessions` is TENANT-scoped — it is
+        // created by this plugin's database/tenant-template/ migration and
+        // central never has the table — so this takes the sign-in tenant's
+        // connection. (An older comment here called it central; the code has
+        // always resolved a tenant connection.)
         $container->bindInternal(\Plugins\Auth\Infrastructure\Persistence\DeviceSessionRepository::class,
             static fn(ModuleContainer $c) =>
                 new \Plugins\Auth\Infrastructure\Persistence\DeviceSessionRepository(
-                    $c->make(DatabasePort::class),
+                    self::signInDb($c),
                 )
         );
 
@@ -161,13 +201,13 @@ final class Provider implements ModuleContract
 
         // Refresh-token session store — TENANT-scoped, like every other auth
         // credential store (auth_sessions, personal_access_tokens). Central holds
-        // no sessions and no tokens, so this resolves the per-request DatabasePort
-        // (rebound to the tenant by TenantContextStage) and NOT the
-        // ConnectionManager default. `refresh_tokens` is created by this plugin's
-        // database/tenant-template/ migration; central never has that table.
+        // no sessions and no tokens, so this resolves a tenant connection and NOT
+        // the ConnectionManager default — the SIGN-IN tenant's, via signInDb().
+        // `refresh_tokens` is created by this plugin's database/tenant-template/
+        // migration; central never has that table.
         $container->bindInternal(\Plugins\Auth\Application\Ports\RefreshTokenStore::class, static fn(ModuleContainer $c) =>
             new \Plugins\Auth\Infrastructure\Persistence\RefreshTokenRepository(
-                $c->make(DatabasePort::class),
+                self::signInDb($c),
             )
         );
 
