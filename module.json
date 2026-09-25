@@ -1,6 +1,6 @@
 {
     "name": "auth",
-    "version": "1.8.2",
+    "version": "1.9.0",
     "kernel": "^1.13.1",
     "solves": "auth.identity",
     "type": "module",
@@ -22,9 +22,18 @@
             "path": "/login",
             "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\AuthPageController@loginPage",
             "name": "auth.login",
+            "filters": [
+                "fresh-session"
+            ],
             "requires": [
                 "http.pageflow"
             ]
+        },
+        {
+            "method": "GET",
+            "path": "/session/start",
+            "handler": "Plugins\\Auth\\Infrastructure\\Http\\Controllers\\SessionStartController@start",
+            "name": "auth.session.start"
         },
         {
             "method": "POST",
@@ -153,9 +162,18 @@
         "namespace": "auth",
         "global": false
     },
-    "emits": [],
+    "emits": [
+        "auth.session.reset",
+        "auth.session.started"
+    ],
     "listens": [],
     "config": [
+        {
+            "key": "AUTH_SESSION_START",
+            "type": "bool",
+            "required": false,
+            "default": true
+        },
         {
             "key": "JWT_SECRET",
             "type": "string",

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Plugins\Auth\Infrastructure\Http\Controllers;
 
+use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Request;
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Response;
 use Plugins\Auth\Application\Ports\Authenticatable;
 use Plugins\Auth\Application\Services\DeviceSessionService;
@@ -109,6 +110,15 @@ final class SessionAuthController extends ApiController
             ?? $this->safeRedirect($previous)
             ?? '/';
 
+        // …via /auth/session/start, so the first page view of the new session
+        // is where other plugins set up their per-user state (see
+        // SessionStartController). AUTH_SESSION_START=false restores the direct
+        // redirect for a deployment that disables that route.
+        if (self::sessionStartEnabled()) {
+            $this->sessionPut(SessionStartController::PENDING, true);
+            $redirect = SessionStartController::through($redirect);
+        }
+
         // Browser form POST → real redirect; AJAX/SPA callers get the target in
         // the payload and navigate client-side.
         if (!$request->expectsJson()) {
@@ -164,13 +174,70 @@ final class SessionAuthController extends ApiController
         return $candidate;
     }
 
+    private static function sessionStartEnabled(): bool
+    {
+        return !\in_array(strtolower(trim((string) (env('AUTH_SESSION_START') ?? '1'))), ['0', 'false', 'off', 'no'], true);
+    }
+
     public function logout(): Response
     {
         // Guard tears down the session, revokes this device's registry row, and
         // clears the remember-me token + cookie.
         $this->auth('web')->logout();
 
-        return $this->noContent();
+        return self::afterLogout($this->resolveRequest());
+    }
+
+    /**
+     * What a sign-out answers, by who asked:
+     *
+     *   - a browser FORM (a hard POST — Pageflow's router.logout(), or a plain
+     *     <form method="post">) → 303 to `redirectTo`, else the page it was
+     *     submitted from, else '/'. The browser reloads that page as a
+     *     signed-out visitor; a page that needs sign-in sends them on to it.
+     *   - a Pageflow XHR (router.post) → 409 + X-Pageflow-Location to the same
+     *     target, which the client turns into a full page load. A 204 there was
+     *     not a Pageflow response, so the client reported it as an error and left
+     *     the signed-in page on screen.
+     *   - any other JSON caller → 204, unchanged.
+     *
+     * Every target is reduced to a same-origin path, so neither `redirectTo`
+     * nor the Referer can send the browser off-site.
+     */
+    public static function afterLogout(Request $request): Response
+    {
+        $pageflow = strtolower((string) ($request->header('X-Pageflow') ?? '')) === 'true';
+
+        if (!$pageflow && $request->expectsJson()) {
+            return Response::noContent();
+        }
+
+        $target = self::localPath($request->input('redirectTo'))
+            ?? self::localPath($request->header('referer'))
+            ?? '/';
+
+        return $pageflow
+            ? Response::json([], 409, ['X-Pageflow-Location' => $target])
+            : Response::redirect($target, 303);
+    }
+
+    /** "/path?query" of a URL or path, or null — never a scheme, host or '//' prefix. */
+    private static function localPath(mixed $url): ?string
+    {
+        if (!is_string($url) || $url === '') {
+            return null;
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        if (!is_string($path) || $path === '') {
+            return null;
+        }
+
+        // Collapse '//evil.test' and '/\evil.test' into a plain local path.
+        $path  = '/' . ltrim(str_replace('\\', '/', $path), '/');
+        $query = parse_url($url, PHP_URL_QUERY);
+
+        return is_string($query) && $query !== '' ? $path . '?' . $query : $path;
     }
 
     public function me(): Response

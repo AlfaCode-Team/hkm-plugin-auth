@@ -91,6 +91,7 @@ hkm tenants:migrate            # applies tenant-template to every tenant DB
 | `AUTH_MOBILE_AUTOVERIFY` | on | auto-verify email on mobile register (`0` disables) |
 | `AUTH_OTP_TTL` | `600` | password-reset OTP lifetime, seconds |
 | `AUTH_GUARD` / `AUTH_PROVIDER` | `web` / `users` | defaults read by `config/auth.php` |
+| `AUTH_SESSION_START` | `true` | send a completed login through `/auth/session/start` (see §6) |
 
 Read them with `env()` — **never `getenv()`** (`.env` values are injected into
 `$_ENV`/`$_SERVER` only).
@@ -315,9 +316,10 @@ $guard->basic('email');   // HTTP Basic → null on success, 401 Response on fai
 ### 6. Session login + remember-me
 
 ```
-POST /auth/login   { identifier|email, password, remember?, redirectTo? }  → 200 {user, redirectTo} | 401
-POST /auth/logout                                                          → 204
-GET  /auth/me                                                              → identity | 401
+POST /auth/login          { identifier|email, password, remember?, redirectTo? }  → 200 {user, redirectTo} | 401
+GET  /auth/session/start  ?next=/path                                             → 302 next
+POST /auth/logout                                                                 → 204
+GET  /auth/me                                                                     → identity | 401
 ```
 
 `remember=true` issues an encrypted `remember_web` cookie holding a
@@ -334,6 +336,63 @@ paths exempt — extend with `SESSION_PREVIOUS_EXEMPT`) under
 one-time) → `/`. Browser POSTs get a 302; AJAX callers get `redirectTo` in the
 JSON payload. Every candidate passes an open-redirect guard (relative `/…` paths
 only). SocialAuth's web callback honours the same recorded page.
+
+**Logout answers by who asked.** `POST /auth/logout` tears the session down the
+same way for every caller, then:
+
+| Caller | Answer |
+|---|---|
+| a browser form (Pageflow's `router.logout()`, or a plain `<form method="post">`) | `303` to `redirectTo`, else the page it came from (Referer), else `/` |
+| a Pageflow XHR (`router.post`) | `409` + `X-Pageflow-Location` to that same target — the client does a full page load |
+| any other JSON caller | `204`, as before |
+
+Every target is reduced to a local path, so neither `redirectTo` nor the Referer
+can send the browser off-site. The page is reloaded as a signed-out visitor; one
+that needs sign-in sends them on to it, and back again afterwards.
+
+**Session start — `/auth/session/start`.** A successful login does not send the
+browser straight to its target: `redirectTo` is
+`/auth/session/start?next=<target>`. That request is the first one to run as the
+signed-in user from end to end — session cookie set, `SessionAuthStage` has
+attached the Identity, every `after.load` stage has seen it — which the login POST
+itself never is, because the pipeline ran it as a guest. The controller dispatches
+`auth.session.started` (`{userId, tenantId}`) so other plugins can build their
+per-session state, then 302s to `next`. Tenancy uses it to clear any organisation
+chosen before and stamp its tenant hint with the user.
+
+- It fires **once per sign-in**: `login()` parks `auth.session.start_pending` in the
+  session and the controller pulls it. A link to the URL on another site can bounce
+  a signed-in user through it, but cannot make it reset their state again.
+- `next` passes the same open-redirect guard as `redirectTo`; anything else → `/`.
+- Pageflow clients need nothing: `router.visit(redirectTo)` follows the 302, and the
+  page object carries the final URL.
+- `AUTH_SESSION_START=false` restores the direct redirect, for a deployment that
+  disables the route.
+
+**Fresh session on sign-in pages — the `fresh-session` filter.** A session that
+expired, or a browser someone else signed out of, still carries what other plugins
+parked in it, and the guard's `login()` rotates the session id but keeps those
+attributes. A route that should start clean opts in:
+
+```jsonc
+{ "method": "GET", "path": "/login", "handler": "…", "filters": ["fresh-session"] }
+```
+
+For a **signed-out** visitor on a GET it replaces the session (new id, attributes
+dropped), carrying over only the recorded previous page and flash messages, then
+dispatches `auth.session.reset` so a plugin holding state in a cookie clears that
+too. A signed-in visitor (remember-me included) and any non-GET request are left
+alone, and an empty session is not replaced, so a bot fetching `/login` is not
+handed a cookie. Auth's own `GET /auth/login` declares the filter; a project's own
+login and sign-up pages add it in `proj.json`.
+
+| Event | When | Payload |
+|---|---|---|
+| `auth.session.reset` | a signed-out visitor opened a `fresh-session` page | `[]` |
+| `auth.session.started` | the first request of a new signed-in session | `userId`, `tenantId` |
+
+Listeners run inside the request — the bus a request hands out resolves them from
+that request's container — so they may queue cookies and write the session.
 
 **Display identity.** `AuthService` fills `username`/`email` from the central user
 store at issuance when the caller didn't supply them; they ride as OIDC claims
@@ -532,7 +591,9 @@ Seed the shipped role hierarchy: `hkm authz:seed`.
 
 | Method | Path | Filters | Extra `requires` |
 |---|---|---|---|
+| GET | `/auth/login` | `fresh-session` | `http.pageflow` |
 | POST | `/auth/login` | `throttle:10,1` | |
+| GET | `/auth/session/start` | | |
 | POST | `/auth/logout` | | |
 | GET | `/auth/me` | | |
 | GET | `/auth/sessions` | `auth` | |

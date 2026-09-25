@@ -366,6 +366,10 @@ final class Provider implements ModuleContract
         // after StartSessionStage and before the route `auth` filter.
         $http->hook('after.load', \Plugins\Auth\Infrastructure\Http\Stages\SessionAuthStage::class, priority: \Plugins\Auth\Infrastructure\Http\Stages\SessionAuthStage::PRIORITY);
 
+        // Sign-in and sign-up pages start from a clean session — see the stage.
+        // A route opts in with "filters": ["fresh-session"].
+        $http->filter(\Plugins\Auth\Infrastructure\Http\Stages\FreshSessionStage::ALIAS, \Plugins\Auth\Infrastructure\Http\Stages\FreshSessionStage::class);
+
         // Maintenance command (auth:tokens:prune). Deferred so only CLI processes
         // pay for it.
         //
