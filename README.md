@@ -50,25 +50,34 @@ password-reset endpoints.
 | `Plugins\Mail` + `Plugins\View` | rendering and sending the two auth emails |
 | `Plugins\OAuth2` | OAuth 2.1 / OIDC **authorization server** — a different concern, see below |
 
-### Database — every auth table is TENANT-scoped
+### Database — auth tables live in the SIGN-IN database
 
-**Central holds no sessions and no tokens.** All three tables are created by this
-plugin's `database/tenant-template/` migrations and live in each **tenant**
-database; the repositories resolve the per-request `DatabasePort` that
-`TenantContextStage` rebinds.
+Every auth repository writes to the per-request `DatabasePort`, so a session or
+token lands in the database of the host the person signed in on:
 
-| Table | Holds | Migration |
-|---|---|---|
-| `personal_access_tokens` | first-party user API keys (hash only) | `2026_06_05_000001_*`, `2026_06_27_000002_*` |
-| `refresh_tokens` | revocable long-lived sessions, `family_id` lineage | `2026_07_04_000002_*` |
-| `auth_sessions` | device-session registry + fingerprints | `2026_07_12_000001_*` |
+- a **tenant host** → that tenant's database (`TenantContextStage` rebinds the
+  port). Tables come from `database/tenant-template/`.
+- a host that resolves **no tenant** (a platform console, a marketing apex, a
+  `TENANCY_CENTRAL_DOMAINS` host, or a project without Tenancy) → the central
+  database. Tables come from `database/migrations/`, published and run on
+  `hkm plugins enable/update`.
+
+Both sets create identical tables (`tests/MigrationParityTest.php`), and both
+skip a table that already exists. A tenant sign-in never writes to central.
+
+| Table | Holds | Tenant template | Central |
+|---|---|---|---|
+| `personal_access_tokens` | first-party user API keys (hash only) | `2026_06_05_000001_*`, `2026_06_27_000002_*` | `2026_10_11_000012_*` |
+| `refresh_tokens` | revocable long-lived sessions, `family_id` lineage | `2026_07_04_000002_*` | `2026_10_11_000011_*` |
+| `auth_sessions` | device-session registry + fingerprints | `2026_07_12_000001_*` | `2026_10_11_000010_*` |
 
 ```bash
 hkm tenants:migrate            # applies tenant-template to every tenant DB
 ```
 
-> Do **not** move these to the central connection. A repository pinned to
-> `ConnectionManager->default()` will query a table central does not have.
+> Do **not** pin a repository to `ConnectionManager->default()`. That would send
+> TENANT sign-ins to central, where their sessions do not belong. The central
+> tables exist only for sign-ins that have no tenant.
 
 ### Configuration
 
@@ -651,10 +660,10 @@ Security layers never throw — these are for the service/controller layers.
 |---|---|
 | `auth:tokens:prune` | delete expired personal access tokens |
 
-> **Known limitation:** `auth:tokens:prune` still resolves the ConnectionManager
-> default (central), but `personal_access_tokens` is tenant-scoped — so it targets
-> a table central does not have. It needs to iterate the tenant registry and run
-> once per tenant connection. Treat it as inoperative until then.
+> **Known limitation:** `auth:tokens:prune` resolves the ConnectionManager
+> default (central), so it prunes only the CENTRAL `personal_access_tokens`
+> (tokens minted on hosts with no tenant). Tenant databases are not iterated yet;
+> it needs to walk the tenant registry and run once per tenant connection.
 
 ### Rules
 

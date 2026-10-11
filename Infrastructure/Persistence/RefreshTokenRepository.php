@@ -10,12 +10,12 @@ use Plugins\Auth\Application\Ports\RefreshTokenStore;
 use Plugins\Auth\Domain\Entities\RefreshTokenRecord;
 
 /**
- * RefreshTokenRepository — TENANT-scoped `refresh_tokens`. DatabasePort ONLY;
- * the injected port is the per-request connection, which TenantContextStage has
- * rebound to the tenant database. Central holds no sessions and no tokens, so
- * the table is created by this plugin's database/tenant-template/ migration and
- * never exists on the central connection. Only token hashes are stored/compared
- * — never raw tokens.
+ * RefreshTokenRepository — `refresh_tokens` in the SIGN-IN database.
+ * DatabasePort ONLY; the injected port is the per-request connection: the
+ * tenant database TenantContextStage rebound on a tenant host, or central on a
+ * host that resolves no tenant. The table is created in both by this plugin's
+ * migrations (database/tenant-template/ and database/migrations/). Only token
+ * hashes are stored/compared — never raw tokens.
  */
 final class RefreshTokenRepository implements RefreshTokenStore
 {

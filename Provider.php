@@ -59,8 +59,9 @@ final class Provider implements ModuleContract
      * The connection auth state belongs to: the tenant the person SIGNED IN to.
      *
      * Normally that is simply the per-request `DatabasePort` — TenantContextStage
-     * resolved it from the hostname and every auth table lives there (central
-     * holds no sessions and no tokens; see the tenant-template migrations).
+     * resolved it from the hostname and every auth table lives there (the
+     * tenant-template migrations). On a host that resolves no tenant it is the
+     * central connection, which gets the same tables from database/migrations/.
      *
      * It stops being the same thing the moment a deployment lets someone switch
      * their ACTIVE tenant without signing in again — a parent administrator
@@ -116,11 +117,11 @@ final class Provider implements ModuleContract
             )
         );
 
-        // Device-session registry. `auth_sessions` is TENANT-scoped — it is
-        // created by this plugin's database/tenant-template/ migration and
-        // central never has the table — so this takes the sign-in tenant's
-        // connection. (An older comment here called it central; the code has
-        // always resolved a tenant connection.)
+        // Device-session registry. `auth_sessions` lives in the SIGN-IN
+        // database: the tenant's on a tenant host (database/tenant-template/),
+        // central on a host that resolves no tenant (database/migrations/).
+        // So this takes signInDb(), never the ConnectionManager default, which
+        // would send tenant sign-ins to central.
         $container->bindInternal(\Plugins\Auth\Infrastructure\Persistence\DeviceSessionRepository::class,
             static fn(ModuleContainer $c) =>
                 new \Plugins\Auth\Infrastructure\Persistence\DeviceSessionRepository(
@@ -199,12 +200,12 @@ final class Provider implements ModuleContract
                 )
         );
 
-        // Refresh-token session store — TENANT-scoped, like every other auth
-        // credential store (auth_sessions, personal_access_tokens). Central holds
-        // no sessions and no tokens, so this resolves a tenant connection and NOT
-        // the ConnectionManager default — the SIGN-IN tenant's, via signInDb().
-        // `refresh_tokens` is created by this plugin's database/tenant-template/
-        // migration; central never has that table.
+        // Refresh-token session store — in the SIGN-IN database, like every
+        // other auth credential store (auth_sessions, personal_access_tokens):
+        // the tenant's on a tenant host, central on a host with no tenant. So
+        // this resolves signInDb() and NOT the ConnectionManager default.
+        // `refresh_tokens` is created by both database/tenant-template/ and
+        // database/migrations/ (identical; MigrationParityTest).
         $container->bindInternal(\Plugins\Auth\Application\Ports\RefreshTokenStore::class, static fn(ModuleContainer $c) =>
             new \Plugins\Auth\Infrastructure\Persistence\RefreshTokenRepository(
                 self::signInDb($c),
@@ -373,12 +374,11 @@ final class Provider implements ModuleContract
         // Maintenance command (auth:tokens:prune). Deferred so only CLI processes
         // pay for it.
         //
-        // KNOWN LIMITATION: `personal_access_tokens` is TENANT-scoped (central
-        // holds no tokens), but this still resolves the ConnectionManager default
-        // because the CLI has no per-request tenant to route to — so the command
-        // currently targets a table central does not have. Pruning must iterate
-        // the tenant registry and run once per tenant connection; until it does,
-        // treat this command as inoperative rather than as a central pin.
+        // KNOWN LIMITATION: this resolves the ConnectionManager default because
+        // the CLI has no per-request tenant to route to, so it prunes only the
+        // CENTRAL `personal_access_tokens` (tokens minted on hosts with no
+        // tenant). Tenant tokens need the command to iterate the tenant registry
+        // and run once per tenant connection; it does not do that yet.
         $cli->defer(static function (CliPipeline $cli): void {
             $c = new ModuleContainer($cli->container());
             $c->setScope('database.management');
