@@ -79,16 +79,7 @@ final class AuthPageController
      */
     private function relativePath(mixed $value): ?string
     {
-        $path = \is_string($value) ? \trim($value) : '';
-
-        if ($path === '' || $path[0] !== '/') {
-            return null;
-        }
-        if (str_starts_with($path, '//') || str_contains($path, '\\')) {
-            return null;
-        }
-
-        return $path;
+        return SessionStartController::safeTarget(\is_string($value) ? \trim($value) : null);
     }
 
     /** Map a `?reason=` code to a human sentence. Unknown codes show nothing. */

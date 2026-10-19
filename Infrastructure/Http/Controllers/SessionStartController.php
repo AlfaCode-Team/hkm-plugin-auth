@@ -56,13 +56,19 @@ final class SessionStartController extends ApiController
     }
 
     /**
-     * A relative path only — the same open-redirect rule login() applies:
-     * no absolute URL, no protocol-relative '//', no '/\' backslash trick.
+     * A relative path only — the one open-redirect rule every redirect target
+     * in this plugin goes through: no absolute URL, no protocol-relative '//',
+     * and no backslash, whitespace or control character anywhere.
+     *
+     * The last part is not cosmetic. Browsers strip tab and newline from a URL
+     * before parsing it, so `/<TAB>//evil.test` passes a '//' prefix check and
+     * then leaves the site as `//evil.test`; some normalise '\' to '/'.
      */
     public static function safeTarget(mixed $candidate): ?string
     {
         if (!is_string($candidate) || $candidate === '' || $candidate[0] !== '/'
-            || str_starts_with($candidate, '//') || str_starts_with($candidate, '/\\')) {
+            || str_starts_with($candidate, '//')
+            || preg_match('/[\x00-\x20\x7F\\\\]/', $candidate) === 1) {
             return null;
         }
 

@@ -166,12 +166,7 @@ final class SessionAuthController extends ApiController
      */
     private function safeRedirect(mixed $candidate): ?string
     {
-        if (!is_string($candidate) || $candidate === '' || $candidate[0] !== '/'
-            || str_starts_with($candidate, '//') || str_starts_with($candidate, '/\\')) {
-            return null;
-        }
-
-        return $candidate;
+        return SessionStartController::safeTarget($candidate);
     }
 
     private static function sessionStartEnabled(): bool
