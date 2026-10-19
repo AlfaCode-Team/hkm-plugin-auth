@@ -33,8 +33,14 @@ final class MigrationParityTest extends TestCase
     {
         yield 'auth_sessions' => [
             'auth_sessions',
-            ['migrations/2026_10_11_000010_create_auth_sessions_table.php'],
-            ['tenant-template/2026_07_12_000001_create_auth_sessions_table.php'],
+            [
+                'migrations/2026_10_11_000010_create_auth_sessions_table.php',
+                'migrations/2026_10_19_000001_add_remember_hash_to_auth_sessions_table.php',
+            ],
+            [
+                'tenant-template/2026_07_12_000001_create_auth_sessions_table.php',
+                'tenant-template/2026_10_19_000001_add_remember_hash_to_auth_sessions_table.php',
+            ],
         ];
         yield 'refresh_tokens' => [
             'refresh_tokens',

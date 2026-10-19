@@ -65,9 +65,14 @@ return [
     | fingerprint — or whose server-side row was revoked/expired — lose the
     | session immediately (see DeviceSessionService).
     |
-    |   ttl_days      absolute device-session lifetime
+    |   ttl_days      lifetime of a REMEMBERED device ("keep me signed in")
     |   refresh_days  rolling window: inside the last N days the expiry slides
     |                 forward a full TTL on activity
+    |   session_lifetime
+    |                 seconds a NOT remembered device's row lives, sliding on
+    |                 activity — the session's own lifetime (the Session
+    |                 plugin's SESSION_LIFETIME), so a sign-in that lapses stops
+    |                 being listed as a live device
     |   client_fingerprint_header
     |                 optional client-supplied fingerprint (e.g. FingerprintJS);
     |                 falls back to sha256(ip|user-agent)
@@ -75,6 +80,7 @@ return [
     'session' => [
         'ttl_days'                  => (int) (env('AUTH_SESSION_TTL') ?: 30),
         'refresh_days'              => (int) (env('AUTH_SESSION_REFRESH') ?: 7),
+        'session_lifetime'          => (int) (env('SESSION_LIFETIME') ?: 7200),
         'client_fingerprint_header' => env('AUTH_FINGERPRINT_HEADER') ?: 'X-Client-Fingerprint',
     ],
 ];

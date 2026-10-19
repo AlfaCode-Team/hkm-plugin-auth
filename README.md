@@ -332,10 +332,16 @@ GET  /auth/me                                                                   
 ```
 
 `remember=true` issues an encrypted `remember_web` cookie holding a
-`userId|token` **recaller** (`Recaller` — a flat pipe string, never unserialized).
-With no live session, `SessionAuthStage` validates it by the token's SHA-256 hash
-(`UserServiceContract::findByRememberToken`), re-opens the session, and **rotates**
-the token + cookie (single-use window). Logout clears both.
+**per-device** recaller, `d:<device session id>|<token>` (`Recaller` — a flat
+pipe string, never unserialized). The token's SHA-256 lives on that device's
+own `auth_sessions` row, so every remembered browser has its own cookie and
+rotating one never signs out another. With no live session, `SessionAuthStage`
+resumes that row with fresh secrets (single use, compare-and-swap) and re-opens
+the session. Logout, "sign out other devices", a password reset or an admin
+revoking the device ends it. Cookies in the old per-user `userId|token` shape
+are accepted once and upgraded. Run the `add_remember_hash_to_auth_sessions`
+migration (central + tenant template); until then remember-me falls back to the
+per-user token. Details: [docs/AUTH.md](docs/AUTH.md#remember-me-recaller-cookie--one-per-device).
 
 **Post-login redirect.** The Session plugin's `StartSessionStage` records the last
 eligible page view (GET + 2xx, HTML or Pageflow page object; auth/OAuth/API/asset

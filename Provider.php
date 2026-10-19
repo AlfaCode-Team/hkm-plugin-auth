@@ -140,6 +140,9 @@ final class Provider implements ModuleContract
                     refreshDays:       (int) (\auth_config('session.refresh_days') ?? 7),
                     fingerprintHeader: (string) (\auth_config('session.client_fingerprint_header') ?? 'X-Client-Fingerprint'),
                     transaction:       $c->make('auth.transaction'),
+                    // A device that was NOT remembered lives as long as its
+                    // session can: the Session plugin's lifetime.
+                    sessionTtlSeconds: (int) (\auth_config('session.session_lifetime') ?? (env('SESSION_LIFETIME') ?: 7200)),
                 )
         );
 

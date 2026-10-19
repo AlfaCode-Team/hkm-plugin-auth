@@ -77,12 +77,14 @@ final class StatefulSessionGuard implements StatefulGuard, SupportsBasicAuth
         if ($userId !== '') {
             // Fingerprint + server-side device-session validation (old __DEV__
             // semantics): a hijacked or revoked session dies here, immediately.
+            // A remembered device keeps its row (DeviceSessionService::release),
+            // so its own cookie can sign it back in on this same call.
             if ($this->devices !== null && $this->request !== null
                 && !$this->devices->verify($this->session, $this->request)) {
-                $this->devices->teardown($this->session);
+                $this->devices->release($this->session);
                 $this->session->invalidate();
 
-                return null;
+                return $this->user = $this->userFromRecaller();
             }
 
             $base = $this->provider->retrieveById($userId);
@@ -163,6 +165,29 @@ final class StatefulSessionGuard implements StatefulGuard, SupportsBasicAuth
 
     public function login(Authenticatable $user, bool $remember = false): void
     {
+        $this->openSession($user);
+
+        // Bind the session to this device: fingerprint + auth_sessions row. A
+        // remembered sign-in gets that row's own remember-me token, so it does
+        // not disturb any other device's.
+        $recaller = null;
+        if ($this->devices !== null && $this->request !== null) {
+            $recaller = $this->devices->establish($this->session, $this->request, (string) $user->getAuthIdentifier(), $remember);
+        }
+
+        if ($remember) {
+            $recaller !== null
+                ? $this->queueCookie($recaller)
+                // No device registry, or its database is not migrated yet.
+                : $this->queueRecaller((string) $user->getAuthIdentifier());
+        }
+
+        $this->setUser($user);
+    }
+
+    /** Write the signed-in identity into a freshly rotated session. */
+    private function openSession(Authenticatable $user): void
+    {
         $identity = $user->identity();
 
         // Session-fixation defence: rotate on privilege change.
@@ -175,17 +200,6 @@ final class StatefulSessionGuard implements StatefulGuard, SupportsBasicAuth
         $this->session->put(AuthService::SESSION_EMAIL, $identity->email);
         $this->session->put(AuthService::SESSION_NAME, $identity->fullName);
         $this->session->put(AuthService::SESSION_AVATAR, $identity->avatarUrl);
-
-        // Bind the session to this device: fingerprint + auth_sessions row.
-        if ($this->devices !== null && $this->request !== null) {
-            $this->devices->establish($this->session, $this->request, $identity->userId);
-        }
-
-        if ($remember) {
-            $this->queueRecaller($identity->userId);
-        }
-
-        $this->setUser($user);
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
@@ -221,14 +235,26 @@ final class StatefulSessionGuard implements StatefulGuard, SupportsBasicAuth
             return null;
         }
 
-        // Kill every OTHER device's server-side session (old semantics), then
-        // rotate the remember token so outstanding recaller cookies die too
-        // (queueRecaller cycles the token before issuing this device's cookie).
+        // Kill every OTHER device's server-side session (old semantics). Their
+        // per-device remember-me lives on those rows, so it dies with them.
         if ($this->devices !== null && $this->request !== null) {
             $this->devices->revokeOthers($this->session, $this->request, $user->getAuthIdentifier());
+
+            // Legacy per-user cookies elsewhere die too.
+            $this->users->clearRememberToken($user->getAuthIdentifier());
+
+            // A copy of THIS device's cookie taken earlier stops working as
+            // well, if this device is remembered. One that is not remembered
+            // does not become remembered by asking.
+            $recaller = $this->devices->rotateRemember($this->session);
+            if ($recaller !== null) {
+                $this->queueCookie($recaller);
+            }
+
+            return $user;
         }
 
-        $this->queueRecaller($user->getAuthIdentifier()); // rotates + reissues for THIS device
+        $this->queueRecaller($user->getAuthIdentifier()); // no registry: legacy rotate + reissue
 
         return $user;
     }
@@ -311,16 +337,53 @@ final class StatefulSessionGuard implements StatefulGuard, SupportsBasicAuth
             return null;
         }
 
+        // Per-device cookie: resume THAT device's row with fresh secrets. The
+        // user is looked up with the same gates as the legacy token lookup
+        // (findByRememberToken: canLogin() — currently always true — and an
+        // active membership), which retrieveById() applies via find(id, true, true).
+        if ($recaller->isDevice()) {
+            if ($this->devices === null) {
+                return null;
+            }
+
+            $resumed = $this->devices->resume($this->session, $this->request, $recaller);
+            $user    = $resumed !== null ? $this->provider->retrieveById($resumed['userId']) : null;
+            if ($resumed === null || $user === null) {
+                return null;
+            }
+
+            // resume() already wrote this device's new token and fingerprint
+            // into the session; openSession() rotates the id and KEEPS them
+            // (Store::regenerate() keeps attributes). Validating before opening
+            // is the point: a bad cookie never writes an identity.
+            $this->openSession($user);
+            $this->queueCookie($resumed['recaller']);
+            $this->viaRemember = true;
+            $this->setUser($user);
+
+            return $user;
+        }
+
+        // Legacy per-user cookie: accepted once, then replaced by a per-device
+        // one (login(remember: true) opens this device's own remembered row).
         $user = $this->provider->retrieveByToken($recaller->token());
         if ($user === null || $user->getAuthIdentifier() !== $recaller->id()) {
             return null;
         }
 
-        // Rotate on use, then re-open the session so subsequent requests are cheap.
+        // Retire the per-user token first, so the old cookie cannot be replayed.
+        // If this database cannot store a per-device token yet, login() falls
+        // back to minting a fresh legacy one, which this must not then clear.
+        $this->users->clearRememberToken((string) $user->getAuthIdentifier());
         $this->viaRemember = true;
         $this->login($user, true);
 
         return $user;
+    }
+
+    private function queueCookie(Recaller $recaller): void
+    {
+        $this->cookies?->queue($this->recallerCookie, $recaller->value(), maxAge: $this->rememberTtl);
     }
 
     private function queueRecaller(string $userId): void
