@@ -6,6 +6,7 @@ namespace Plugins\Auth\Infrastructure\Http\Controllers;
 
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Request;
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Response;
+use Plugins\Auth\Infrastructure\Http\Stages\GuestOnlyStage;
 use Plugins\Pageflow\Http\PageflowResponder;
 use Project\Http\Controllers\Concerns\InteractsWithGraphSeo;
 
@@ -43,9 +44,11 @@ final class AuthPageController
         // Already signed in? Showing the form invites a pointless re-login and,
         // worse, a second `attempt()` that rotates the session id under a user
         // who was authenticated the whole time. Send them where they were going.
+        // Same rule as the `guest` route filter, so a project's own sign-in
+        // page behaves like this one.
         $identity = $request->identity();
         if ($identity !== null && !$identity->isGuest()) {
-            return Response::redirect($this->relativePath($request->query('redirectTo')) ?? '/');
+            return Response::redirect(GuestOnlyStage::target($request) ?? '/');
         }
 
         // The SURFACE this page renders into. Defaults to 'admin', which is the

@@ -401,9 +401,33 @@ alone, and an empty session is not replaced, so a bot fetching `/login` is not
 handed a cookie. Auth's own `GET /auth/login` declares the filter; a project's own
 login and sign-up pages add it in `proj.json`.
 
+**Signed-out-only pages — the `guest` filter.** A signed-in visitor who opens a
+sign-in, sign-up or forgot-password page is sent on instead of shown a form —
+shown it, they read it as "I was signed out", and a form submitted from it signs
+in again on top of their session.
+
+```jsonc
+{ "method": "GET", "path": "/login", "handler": "…", "filters": ["guest", "fresh-session"] }
+{ "method": "GET", "path": "/login", "handler": "…", "filters": ["guest:/platform"] }
+```
+
+They go to the page's own `?redirectTo=` (open-redirect guarded), else the
+filter's argument, else `/`; a target that is the page itself renders the page
+rather than loop. GET and HEAD only. The route must load `auth.identity`, or every
+visitor reads as a guest. Auth's own `GET /auth/login` applies the same rule.
+
+**Signing in while signed in.** `POST /auth/login` from someone already signed in
+— a sign-in tab left open — checks the password without signing anyone in first:
+
+| Credentials | Result |
+|---|---|
+| the current account, right password | nothing happens; sent on, no new session |
+| another account, right password | the current person is signed out completely (`auth.session.reset` dispatched), then the other signs in on a fresh session |
+| wrong | refused as for anyone; the current person stays signed in, and the one wrong password counts once |
+
 | Event | When | Payload |
 |---|---|---|
-| `auth.session.reset` | a signed-out visitor opened a `fresh-session` page | `[]` |
+| `auth.session.reset` | a signed-out visitor opened a `fresh-session` page, or a sign-in switched accounts | `[]` |
 | `auth.session.started` | the first request of a new signed-in session | `userId`, `tenantId` |
 
 Listeners run inside the request — the bus a request hands out resolves them from

@@ -6,7 +6,10 @@ namespace Plugins\Auth\Infrastructure\Http\Controllers;
 
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Request;
 use AlfacodeTeam\PhpServicePlatform\Kernel\Http\Response;
+use AlfacodeTeam\PhpServicePlatform\Kernel\Events\EventBus;
+use Plugins\Auth\API\IntegrationEvents\AuthSessionIntegrationEvent;
 use Plugins\Auth\Application\Ports\Authenticatable;
+use Plugins\Auth\Application\Ports\StatefulGuard;
 use Plugins\Auth\Application\Services\DeviceSessionService;
 use Plugins\Session\Infrastructure\Http\StartSessionStage;
 use Plugins\User\API\Contracts\UserServiceContract;
@@ -66,13 +69,47 @@ final class SessionAuthController extends ApiController
             ]);
         }
 
-        $guard = $this->auth('web');
+        $guard       = $this->auth('web');
+        $credentials = $this->credentials($identifier, $password);
 
-        
+        $previous    = null;
+
+        // ALREADY SIGNED IN — a sign-in form left open in another tab, or one
+        // shown before the `guest` filter was on its page. Running attempt() on
+        // top of the session is wrong both ways: for the same account it rotates
+        // the session of someone who was signed in all along; for ANOTHER
+        // account, login() rotates the id but keeps the attributes, so the new
+        // person inherits what the old one's session held (a chosen
+        // organisation, a half-finished flow).
+        $current  = $guard->user();
+        $stateful = $guard->stateful();
+        $fresh    = true;
+        $outcome  = null;
+        if ($current !== null && $stateful !== null) {
+            $outcome = self::whenSignedIn($stateful, $current, $credentials);
+            if ($outcome === self::SAME_ACCOUNT) {
+                // Nothing to do: send them on, without a new session.
+                $fresh = false;
+            } elseif ($outcome === self::OTHER_ACCOUNT) {
+                // The password is right, so switching is what was asked for.
+                // Only NOW is the current person signed out — a wrong password
+                // never costs them their session — completely, and other plugins
+                // told so, so the next person starts clean. The page to return
+                // to lives in the session being discarded: read it first.
+                $previous = $this->sessionPull(StartSessionStage::PREVIOUS_URL);
+                $guard->logout();
+                $this->announceSessionReset();
+            }
+            // REFUSED answers exactly as for a signed-out visitor, without a
+            // second attempt(): that would count the one wrong password twice
+            // towards the lockout.
+        }
+
         // The 'web' guard's driver verifies credentials, opens the session,
         // binds the device fingerprint + auth_sessions row, and (when asked)
         // queues the remember-me recaller — all internally.
-        if (!$guard->attempt($this->credentials($identifier, $password), $request->boolean('remember'))) {
+        if ($outcome === self::REFUSED
+            || ($fresh && !$guard->attempt($credentials, $request->boolean('remember')))) {
             // COMPATIBILITY PATH — normally unreachable now.
             //
             // Under soft verification (User::canLogin() since user v2.2.0) an
@@ -105,7 +142,7 @@ final class SessionAuthController extends ApiController
         //      fulfilled intent never goes stale,
         //   3. '/'.
         // Both candidates pass the same open-redirect guard.
-        $previous = $this->sessionPull(StartSessionStage::PREVIOUS_URL);
+        $previous ??= $this->sessionPull(StartSessionStage::PREVIOUS_URL);
         $redirect = $this->safeRedirect($request->input('redirectTo'))
             ?? $this->safeRedirect($previous)
             ?? '/';
@@ -114,7 +151,8 @@ final class SessionAuthController extends ApiController
         // is where other plugins set up their per-user state (see
         // SessionStartController). AUTH_SESSION_START=false restores the direct
         // redirect for a deployment that disables that route.
-        if (self::sessionStartEnabled()) {
+        // Not for the same account signing in again: no new session started.
+        if ($fresh && self::sessionStartEnabled()) {
             $this->sessionPut(SessionStartController::PENDING, true);
             $redirect = SessionStartController::through($redirect);
         }
@@ -126,6 +164,52 @@ final class SessionAuthController extends ApiController
         }
 
         return $this->ok(['user' => $this->shape($guard->user()), 'redirectTo' => $redirect]);
+    }
+
+    public const string SAME_ACCOUNT  = 'same';
+    public const string OTHER_ACCOUNT = 'other';
+    public const string REFUSED       = 'refused';
+
+    /**
+     * Someone already signed in submitted the sign-in form: whose credentials
+     * are these?
+     *
+     *   SAME_ACCOUNT   the current person, password right — nothing to do;
+     *   OTHER_ACCOUNT  someone else, password right — switch accounts;
+     *   REFUSED        the credentials are wrong — the current person stays.
+     *
+     * validate() checks the password without signing anyone in. Which account
+     * it matched is read from the guard when it can say (StatefulSessionGuard's
+     * getLastAttempted()); a guard that cannot is treated as OTHER_ACCOUNT,
+     * which costs a needless sign-out and sign-in and never leaves the wrong
+     * person signed in.
+     *
+     * @param array<string,string> $credentials
+     * @return self::SAME_ACCOUNT|self::OTHER_ACCOUNT|self::REFUSED
+     */
+    public static function whenSignedIn(StatefulGuard $guard, Authenticatable $current, array $credentials): string
+    {
+        if (!$guard->validate($credentials)) {
+            return self::REFUSED;
+        }
+
+        $matched = method_exists($guard, 'getLastAttempted') ? $guard->getLastAttempted() : null;
+
+        return $matched instanceof Authenticatable
+            && (string) $matched->getAuthIdentifier() === (string) $current->getAuthIdentifier()
+            ? self::SAME_ACCOUNT
+            : self::OTHER_ACCOUNT;
+    }
+
+    /** Tell other plugins the session changed hands (Tenancy forgets the chosen organisation). */
+    private function announceSessionReset(): void
+    {
+        $container = $this->resolveRequest()->container();
+        if ($container !== null && $container->has(EventBus::class)) {
+            $container->make(EventBus::class)->dispatch(
+                new AuthSessionIntegrationEvent(AuthSessionIntegrationEvent::RESET),
+            );
+        }
     }
 
     /**

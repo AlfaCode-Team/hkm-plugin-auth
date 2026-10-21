@@ -374,6 +374,11 @@ final class Provider implements ModuleContract
         // A route opts in with "filters": ["fresh-session"].
         $http->filter(\Plugins\Auth\Infrastructure\Http\Stages\FreshSessionStage::ALIAS, \Plugins\Auth\Infrastructure\Http\Stages\FreshSessionStage::class);
 
+        // Pages only a signed-out visitor should see send a signed-in one on —
+        // see the stage. A route opts in with "filters": ["guest"] (or
+        // "guest:/home" to name where they go).
+        $http->filter(\Plugins\Auth\Infrastructure\Http\Stages\GuestOnlyStage::ALIAS, \Plugins\Auth\Infrastructure\Http\Stages\GuestOnlyStage::class);
+
         // Maintenance command (auth:tokens:prune). Deferred so only CLI processes
         // pay for it.
         //
